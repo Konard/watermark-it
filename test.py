@@ -43,7 +43,8 @@ def main() -> None:
             exe,
             "decode_video_watermark.py",
             "-o", orig,
-            "-w", water
+            "-w", water,
+            "--debug"
         ]).decode().strip()
 
         print(f"Decoded message : {decoded}")
