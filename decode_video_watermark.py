@@ -41,9 +41,11 @@ def bits_to_int(bits: List[int]) -> int:
 def decode(orig: str, water: str, block: int, pad: int) -> int:
     co = cv2.VideoCapture(orig)
     cw = cv2.VideoCapture(water)
+
     w = int(co.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(co.get(cv2.CAP_PROP_FRAME_HEIGHT))
     positions = compute_positions(w, h, block, pad)
+
     sums = np.zeros(len(positions), dtype=np.float64)
     frames = 0
 
@@ -55,17 +57,21 @@ def decode(orig: str, water: str, block: int, pad: int) -> int:
 
         diff = fw.astype(np.int16) - fo.astype(np.int16)
         for idx, (x, y) in enumerate(positions):
-            roi = diff[y:y+block, x:x+block]
+            roi = diff[y:y + block, x:x + block]
             sums[idx] += roi.mean()
         frames += 1
 
     co.release()
     cw.release()
 
-    bits = []
-    for mean_delta in sums / max(1, frames):
-        mag = abs(int(round(mean_delta)))
-        bits.append(0 if mag % 2 else 1)
+    # Mean absolute deltas per spot
+    abs_means = np.abs(sums / max(1, frames))
+
+    # Auto‑threshold: halfway between min and max magnitude
+    t_low, t_high = abs_means.min(), abs_means.max()
+    threshold = (t_low + t_high) / 2.0
+
+    bits = [0 if m < threshold else 1 for m in abs_means]
     return bits_to_int(bits)
 
 

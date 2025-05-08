@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
 Embed a 64‑bit message in a video by nudging 2×2 pixel blocks around the
-frame perimeter.  Odd magnitude deltas → bit 0, even → bit 1.
+frame perimeter.  Magnitude 3 → bit 0, magnitude 4 → bit 1.
 The same watermark is applied to *every* frame.
 
 Example:
     python watermark_video.py -i original.mp4 -o watermarked.mp4 -m 123456789
 """
 import argparse
-import random
 from typing import List, Tuple
 
 import cv2
@@ -30,27 +29,14 @@ def compute_positions(w: int, h: int, block: int, pad: int) -> List[Tuple[int, i
     step_y = usable_h / 15
 
     pos = []
-    # top edge
     for i in range(16):
-        x = int(round(pad + i * step_x))
-        y = pad
-        pos.append((x, y))
-    # right edge
+        pos.append((int(round(pad + i * step_x)), pad))                     # top
     for i in range(16):
-        x = w - pad - block
-        y = int(round(pad + i * step_y))
-        pos.append((x, y))
-    # bottom edge
+        pos.append((w - pad - block, int(round(pad + i * step_y))))         # right
     for i in range(16):
-        x = int(round(w - pad - block - i * step_x))
-        y = h - pad - block
-        pos.append((x, y))
-    # left edge
+        pos.append((int(round(w - pad - block - i * step_x)), h - pad - block))  # bottom
     for i in range(16):
-        x = pad
-        y = int(round(h - pad - block - i * step_y))
-        pos.append((x, y))
-    assert len(pos) == 64
+        pos.append((pad, int(round(h - pad - block - i * step_y))))         # left
     return pos
 
 
@@ -59,10 +45,16 @@ def embed(infile: str,
           message: int,
           block: int = 2,
           pad: int = 42,
-          delta_min: int = 1,
-          delta_max: int = 3,
-          seed: int = 0) -> None:
-    rng = random.Random(seed)
+          delta0: int = 3,
+          delta1: int = 4) -> None:
+    """
+    delta0 is the absolute luminance change for bit 0 (must be odd),
+    delta1 for bit 1 (must be even).  Defaults 3 / 4 – small but survives
+    H.264 compression.
+    """
+    assert delta0 % 2 == 1, "delta0 must be odd"
+    assert delta1 % 2 == 0, "delta1 must be even"
+
     bits = int_to_bits(message)
     cap = cv2.VideoCapture(infile)
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -73,26 +65,24 @@ def embed(infile: str,
 
     positions = compute_positions(w, h, block, pad)
 
-    frame_idx = 0
+    written = 0
     while True:
         ok, frame = cap.read()
         if not ok:
             break
+
         for (x, y), bit in zip(positions, bits):
-            mag = rng.randint(delta_min, delta_max)  # pick 1–3
-            if mag % 2 != bit ^ 1:                   # force odd→0, even→1
-                mag += 1
-            if np.any(frame[y:y+block, x:x+block] + mag > 255):
-                mag = -mag                          # flip sign if overflow
-            frame[y:y+block, x:x+block] = np.clip(
-                frame[y:y+block, x:x+block].astype(int) + mag, 0, 255
-            ).astype(np.uint8)
+            mag = delta0 if bit == 0 else delta1      # 3 → 0, 4 → 1
+            delta = -mag                              # always darken = safe for white
+            roi = frame[y:y + block, x:x + block].astype(int) + delta
+            frame[y:y + block, x:x + block] = np.clip(roi, 0, 255).astype(np.uint8)
+
         vw.write(frame)
-        frame_idx += 1
+        written += 1
 
     cap.release()
     vw.release()
-    print(f"Watermarked {frame_idx} frames → {outfile}")
+    print(f"Watermarked {written} frames → {outfile}")
 
 
 def main() -> None:
@@ -103,15 +93,15 @@ def main() -> None:
                     help="64‑bit integer (decimal or 0x‑prefixed hex)")
     ap.add_argument("--block", type=int, default=2)
     ap.add_argument("--pad", type=int, default=42)
-    ap.add_argument("--delta-min", type=int, default=1)
-    ap.add_argument("--delta-max", type=int, default=3)
-    ap.add_argument("--seed", type=int, default=0,
-                    help="RNG seed so embed/detect use same deltas")
+    ap.add_argument("--delta0", type=int, default=3,
+                    help="Odd  luminance step for bit 0 (default 3)")
+    ap.add_argument("--delta1", type=int, default=4,
+                    help="Even luminance step for bit 1 (default 4)")
     args = ap.parse_args()
 
     msg_int = int(args.message, 0) & ((1 << 64) - 1)
     embed(args.input, args.output, msg_int,
-          args.block, args.pad, args.delta_min, args.delta_max, args.seed)
+          args.block, args.pad, args.delta0, args.delta1)
 
 
 if __name__ == "__main__":
