@@ -12,7 +12,6 @@ import os
 import random
 import subprocess
 import sys
-import tempfile
 
 
 def run(cmd):
@@ -22,38 +21,40 @@ def run(cmd):
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        orig = os.path.join(tmp, "orig.mp4")
-        water = os.path.join(tmp, "water.mp4")
+    local_folder = "./test_videos"
+    os.makedirs(local_folder, exist_ok=True)
 
-        message = random.getrandbits(64)
-        print(f"Watermark message: {message}")
+    orig = os.path.join(local_folder, "orig.mp4")
+    water = os.path.join(local_folder, "water.mp4")
 
-        exe = sys.executable  # path to the current Python interpreter
+    message = random.getrandbits(64)
+    print(f"Watermark message: {message}")
 
-        run([exe, "generate_video.py", "-o", orig])
-        run([
-            exe,
-            "watermark_video.py",
-            "-i", orig,
-            "-o", water,
-            "-m", str(message),
-        ])
-        decoded = subprocess.check_output([
-            exe,
-            "decode_video_watermark.py",
-            "-o", orig,
-            "-w", water,
-            "--debug"
-        ]).decode().strip()
+    exe = sys.executable  # path to the current Python interpreter
 
-        print(f"Decoded message : {decoded}")
-        if int(decoded) == message:
-            print("\n✔ SUCCESS – message recovered correctly.")
-            sys.exit(0)
-        else:
-            print("\n✖ FAILURE – mismatch!")
-            sys.exit(1)
+    run([exe, "generate_video.py", "-o", orig])
+    run([
+        exe,
+        "watermark_video.py",
+        "-i", orig,
+        "-o", water,
+        "-m", str(message),
+    ])
+    decoded = subprocess.check_output([
+        exe,
+        "decode_video_watermark.py",
+        "-o", orig,
+        "-w", water,
+        "--debug"
+    ]).decode().strip()
+
+    print(f"Decoded message : {decoded}")
+    if int(decoded) == message:
+        print("\n✔ SUCCESS – message recovered correctly.")
+        sys.exit(0)
+    else:
+        print("\n✖ FAILURE – mismatch!")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
